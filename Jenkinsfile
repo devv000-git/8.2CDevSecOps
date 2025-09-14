@@ -3,10 +3,10 @@ pipeline {
   triggers { pollSCM('H/2 * * * *') }   // auto-build on push (~every 2 min)
 
   environment {
-    REPO_URL   = 'https://github.com/devv000-git/8.2CDevSecOps.git'
-    APP_DIR    = 'nodejs-goof'          // set to '.' if package.json is in repo root
-    SCANNER_ZIP= 'sonar-scanner-cli-5.0.1.3006-linux.zip'
-    SCANNER_URL= "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${SCANNER_ZIP}"
+    REPO_URL    = 'https://github.com/devv000-git/8.2CDevSecOps.git'
+    APP_DIR     = 'nodejs-goof'   // set to '.' if package.json is in repo root
+    SCANNER_ZIP = 'sonar-scanner-cli-5.0.1.3006-linux.zip'
+    SCANNER_URL = "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${SCANNER_ZIP}"
   }
 
   stages {
@@ -14,46 +14,82 @@ pipeline {
       steps {
         git branch: 'main', url: "${env.REPO_URL}"
         sh "ls -la ${APP_DIR}"
-        sh "test -f ${APP_DIR}/package.json || (echo 'ERROR: package.json not found in ${APP_DIR}. Set APP_DIR correctly.' && exit 1)"
+        sh "test -f ${APP_DIR}/package.json || (echo 'ERROR: package.json not found in ${APP_DIR}' && exit 1)"
       }
     }
 
     stage('Install Dependencies') {
-      steps { dir("${APP_DIR}") { sh 'npm ci || npm install' } }
+      steps {
+        dir("${APP_DIR}") {
+          sh 'npm ci || npm install'
+        }
+      }
     }
 
     stage('Run Tests') {
-      steps { dir("${APP_DIR}") { sh 'npm test || true' } }
+      steps {
+        dir("${APP_DIR}") {
+          sh 'npm test || true'
+        }
+      }
     }
 
     stage('Generate Coverage') {
-      steps { dir("${APP_DIR}") { sh 'npm run coverage || true' } }
+      steps {
+        dir("${APP_DIR}") {
+          sh 'npm run coverage || true'
+        }
+      }
     }
 
     stage('NPM Audit') {
-      steps { dir("${APP_DIR}") { sh 'npm audit || true' } }
+      steps {
+        dir("${APP_DIR}") {
+          sh 'npm audit || true'
+        }
+      }
     }
 
     stage('SonarCloud Analysis') {
-  steps {
-    withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
-      dir("${APP_DIR}") {
-        sh '''
-          set -e
-          command -v unzip >/dev/null 2>&1 || (apt-get update && apt-get install -y unzip)
-          rm -rf sonar-scanner scanner.zip || true
-          curl -L -o scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
-          unzip -q scanner.zip -d sonar-scanner
+      steps {
+        withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
+          dir("${APP_DIR}") {
+            sh '''
+              set -e
+              command -v unzip >/dev/null 2>&1 || (apt-get update && apt-get install -y unzip)
 
-          # Resolve scanner path explicitly
-          SCANNER_DIR=$(find sonar-scanner -maxdepth 1 -type d -name "sonar-scanner-*")
-          export PATH="$PWD/$SCANNER_DIR/bin:$PATH"
+              # clean previous scanner
+              rm -rf sonar-scanner scanner.zip || true
 
-          "$SCANNER_DIR/bin/sonar-scanner" -Dsonar.login=$SONAR_TOKEN
-          echo '--- Sonar task info ---'
-          test -f .scannerwork/report-task.txt && cat .scannerwork/report-task.txt || true
-        '''
+              # download scanner
+              curl -L -o scanner.zip ${SCANNER_URL}
+              unzip -q scanner.zip -d sonar-scanner
+
+              # resolve scanner folder
+              SCANNER_DIR=$(find sonar-scanner -maxdepth 1 -type d -name "sonar-scanner-*")
+              export PATH="$PWD/$SCANNER_DIR/bin:$PATH"
+
+              # run scanner (requires sonar-project.properties in repo root)
+              "$SCANNER_DIR/bin/sonar-scanner" -Dsonar.login=$SONAR_TOKEN
+
+              echo '--- Sonar task info ---'
+              test -f .scannerwork/report-task.txt && cat .scannerwork/report-task.txt || true
+            '''
+          }
+        }
       }
+    }
+  }
+
+  post {
+    success {
+      echo '✅ Pipeline finished. Check SonarCloud dashboard for updated metrics.'
+    }
+    failure {
+      echo '❌ Pipeline failed. Check Console Output for details.'
+    }
+    always {
+      archiveArtifacts artifacts: '**/.scannerwork/report-task.txt', onlyIfSuccessful: false
     }
   }
 }
