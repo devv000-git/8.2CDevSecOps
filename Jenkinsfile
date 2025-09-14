@@ -1,41 +1,32 @@
-pipeline {
-    agent any
+stage('SonarCloud Analysis') {
+  steps {
+    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+      dir("${APP_DIR}") {
+        sh '''
+          set -euxo pipefail
 
-    environment {
-        APP_DIR = 'nodejs-goof'
-        SCANNER_URL = 'https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip'
+          # 1) Download scanner if not already present
+          if [ ! -d sonar-scanner ]; then
+            rm -rf sonar-scanner scanner.zip
+            curl -sSL -o scanner.zip "${SCANNER_URL}"
+            mkdir -p sonar-scanner
+            unzip -q scanner.zip -d sonar-scanner
+          fi
+
+          # 2) Find the extracted dir (e.g. sonar-scanner/sonar-scanner-5.0.1.3006-linux)
+          SCANNER_DIR="$(find sonar-scanner -maxdepth 1 -type d -name "sonar-scanner-*-linux" | head -n1)"
+          test -n "$SCANNER_DIR"  # fail if empty
+          chmod +x "$SCANNER_DIR/bin/sonar-scanner"
+
+          # 3) Run analysis
+          "$SCANNER_DIR/bin/sonar-scanner" \
+            -Dsonar.projectKey=devv000-git_8.2CDevSecOps \
+            -Dsonar.organization=devv000-git \
+            -Dsonar.sources=. \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.login="$SONAR_TOKEN"
+        '''
+      }
     }
-
-    stages {
-        stage('Checkout') {
-            steps {
-                git branch: 'main', url: 'https://github.com/devv000-git/8.2CDevSecOps.git'
-            }
-        }
-
-        stage('Install Dependencies') {
-            steps {
-                dir("${APP_DIR}") {
-                    sh 'npm ci'
-                }
-            }
-        }
-
-        stage('SonarCloud Analysis') {
-            steps {
-                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                    dir("${APP_DIR}") {
-                        sh '''
-                            ./sonar-scanner/bin/sonar-scanner \
-                            -Dsonar.projectKey=devv000-git_8.2CDevSecOps \
-                            -Dsonar.organization=devv000-git \
-                            -Dsonar.sources=. \
-                            -Dsonar.host.url=https://sonarcloud.io \
-                            -Dsonar.login=$SONAR_TOKEN
-                        '''
-                    }
-                }
-            }
-        }
-    }
+  }
 }
