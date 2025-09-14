@@ -35,30 +35,25 @@ pipeline {
     }
 
     stage('SonarCloud Analysis') {
-      steps {
-        withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
-          dir("${APP_DIR}") {
-            sh """
-              set -e
-              command -v unzip >/dev/null 2>&1 || (apt-get update && apt-get install -y unzip)
-              rm -rf sonar-scanner scanner.zip || true
-              curl -L -o scanner.zip ${SCANNER_URL}
-              unzip -q scanner.zip -d .
-              export PATH="\$PWD/sonar-scanner-*/bin:\$PATH"
+  steps {
+    withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
+      dir("${APP_DIR}") {
+        sh '''
+          set -e
+          command -v unzip >/dev/null 2>&1 || (apt-get update && apt-get install -y unzip)
+          rm -rf sonar-scanner scanner.zip || true
+          curl -L -o scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
+          unzip -q scanner.zip -d sonar-scanner
 
-              sonar-scanner -Dsonar.login=${SONAR_TOKEN}
-              echo '--- Sonar task info ---'
-              test -f .scannerwork/report-task.txt && cat .scannerwork/report-task.txt || true
-            """
-          }
-        }
+          # Resolve scanner path explicitly
+          SCANNER_DIR=$(find sonar-scanner -maxdepth 1 -type d -name "sonar-scanner-*")
+          export PATH="$PWD/$SCANNER_DIR/bin:$PATH"
+
+          "$SCANNER_DIR/bin/sonar-scanner" -Dsonar.login=$SONAR_TOKEN
+          echo '--- Sonar task info ---'
+          test -f .scannerwork/report-task.txt && cat .scannerwork/report-task.txt || true
+        '''
       }
     }
-  }
-
-  post {
-    success { echo '✅ Pipeline finished. Check SonarCloud dashboard for updated metrics.' }
-    failure { echo '❌ Pipeline failed. Open Console Output for details.' }
-    always  { archiveArtifacts artifacts: '**/.scannerwork/report-task.txt', onlyIfSuccessful: false }
   }
 }
