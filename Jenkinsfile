@@ -23,38 +23,34 @@ pipeline {
         }
 
         stage('SonarCloud Analysis') {
-            steps {
-                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                    dir("${APP_DIR}") {
-                        sh '''
-                          set -eux
-                          rm -rf sonar-scanner scanner.zip
-                          curl -sSL -o scanner.zip ${SCANNER_URL}
-                          mkdir -p sonar-scanner
-                          unzip -q scanner.zip -d sonar-scanner
-                          SCANNER_DIR=$(find sonar-scanner -maxdepth 1 -type d -name "sonar-scanner-*-linux" | head -n1)
-                          chmod +x "$SCANNER_DIR/bin/sonar-scanner"
+  steps {
+    withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+      dir("${APP_DIR}") {
+        sh '''
+          set -eux
+          command -v java >/dev/null 2>&1 || (apt-get update && apt-get install -y openjdk-17-jre unzip curl)
 
-                          "$SCANNER_DIR/bin/sonar-scanner" \
-                            -Dsonar.projectKey=devv000-git_8.2CDevSecOps \
-                            -Dsonar.organization=devv000-git \
-                            -Dsonar.sources=. \
-                            -Dsonar.host.url=https://sonarcloud.io \
-                            -Dsonar.login=$SONAR_TOKEN
-                        '''
-                    }
-                }
-            }
-        }
-    }
+          rm -rf sonar-scanner scanner.zip
+          curl -sSL -o scanner.zip ${SCANNER_URL}
+          unzip -q scanner.zip -d sonar-scanner
 
-    post {
-        always {
-            archiveArtifacts artifacts: '**/nodejs-goof/*.log', allowEmptyArchive: true
-            echo "✅ Pipeline finished."
-        }
-        failure {
-            echo "❌ Pipeline failed. Check Console Output."
-        }
+          SCANNER_DIR=$(find sonar-scanner -maxdepth 1 -type d -name "sonar-scanner-*-linux" | head -n1)
+
+          # remove bundled JRE (x86_64 only, won’t run on arm64)
+          rm -rf "$SCANNER_DIR/jre"
+
+          export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk}"
+          export PATH="$JAVA_HOME/bin:$PWD/$SCANNER_DIR/bin:$PATH"
+
+          "$SCANNER_DIR/bin/sonar-scanner" \
+            -Dsonar.projectKey=devv000-git_8.2CDevSecOps \
+            -Dsonar.organization=devv000-git \
+            -Dsonar.sources=. \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.login=$SONAR_TOKEN \
+            -Dsonar.scanner.skipJreProvisioning=true
+        '''
+      }
     }
+  }
 }
