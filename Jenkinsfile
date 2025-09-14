@@ -1,6 +1,5 @@
 pipeline {
   agent any
-  options { timestamps() }
   triggers { pollSCM('H/2 * * * *') }   // auto-build on push (~every 2 min)
 
   environment {
@@ -13,7 +12,6 @@ pipeline {
   stages {
     stage('Checkout') {
       steps {
-        // Safe even though job is "Pipeline from SCM"
         git branch: 'main', url: "${env.REPO_URL}"
         sh "ls -la ${APP_DIR}"
         sh "test -f ${APP_DIR}/package.json || (echo 'ERROR: package.json not found in ${APP_DIR}. Set APP_DIR correctly.' && exit 1)"
@@ -25,11 +23,11 @@ pipeline {
     }
 
     stage('Run Tests') {
-      steps { dir("${APP_DIR}") { sh 'npm test || true' } }          // keep demo green
+      steps { dir("${APP_DIR}") { sh 'npm test || true' } }
     }
 
     stage('Generate Coverage') {
-      steps { dir("${APP_DIR}") { sh 'npm run coverage || true' } }  // best-effort
+      steps { dir("${APP_DIR}") { sh 'npm run coverage || true' } }
     }
 
     stage('NPM Audit') {
@@ -48,9 +46,7 @@ pipeline {
               unzip -q scanner.zip -d .
               export PATH="\$PWD/sonar-scanner-*/bin:\$PATH"
 
-              # sonar-project.properties must be in repo root
               sonar-scanner -Dsonar.login=${SONAR_TOKEN}
-
               echo '--- Sonar task info ---'
               test -f .scannerwork/report-task.txt && cat .scannerwork/report-task.txt || true
             """
